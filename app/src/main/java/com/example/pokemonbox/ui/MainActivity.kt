@@ -3,24 +3,32 @@ package com.example.pokemonbox.ui
 //noinspection UsingMaterialAndMaterial3Libraries
 import android.annotation.SuppressLint
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Divider
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -28,44 +36,38 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
+import coil.compose.AsyncImage
+import com.android.volley.toolbox.ImageRequest
+import com.example.pokemonbox.ui.core.model.PokeModel
+import com.example.pokemonbox.ui.core.model.Pokemon
+import com.example.pokemonbox.ui.core.model.PokemonDescription
+import com.example.pokemonbox.ui.core.model.Type
+import com.example.pokemonbox.ui.theme.pokemon_view_model.PokemonViewModel
 import com.google.accompanist.systemuicontroller.rememberSystemUiController
+import java.util.Locale
 
-data class Pokemon(
-    val name: String,
-    val types: List<String>,
-    val description: String,
-)
-
-val pokemonList = listOf(
-    Pokemon("Bulbasaur", listOf("Grass", "Poison"), "It uses the nutrients that are packed on its back in order to grow."),
-    Pokemon("Luxray", listOf("Electric"), "It can see clearly through walls to track down its prey and seek its lost young."),
-    Pokemon("Shellder", listOf("Water"), "It is encased in a shell harder than diamond, but inside it is tender."),
-    Pokemon("Rayquaza", listOf("Dragon", "Flying"), "Is said to have lived for hundreds of millions of years."),
-    Pokemon("Gulpin", listOf("Poison"), "There is nothing its stomach can't digest."),
-    Pokemon("Pikachu", listOf("Electric"), "It raises its tail to check its surroundings."),
-    Pokemon("Charmander", listOf("Fire"), "It has a preference for hot things."),
-    Pokemon("Squirtle", listOf("Water"), "After birth, its back swells and hardens into a shell."),
-    Pokemon("Jigglypuff", listOf("Normal", "Fairy"), "It captivates foes with its huge, round eyes."),
-    Pokemon("Gengar", listOf("Ghost", "Poison"), "It hides in shadows. It is said that if Gengar is hiding, it cools the area by nearly 10 degrees Fahrenheit."),
-    Pokemon("Mewtwo", listOf("Psychic"), "It was created by a scientist after years of horrific gene splicing and DNA engineering experiments."),
-    Pokemon("Mew", listOf("Psychic"), "So rare that it is still said to be a mirage by many experts."),
-)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            PokemonBoxApp()
+            val viewModel: PokemonViewModel = viewModel()
+            PokemonBoxApp(viewModel)
         }
     }
 }
@@ -73,7 +75,11 @@ class MainActivity : ComponentActivity() {
 @SuppressLint("UnusedMaterial3ScaffoldPaddingParameter")
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PokemonBoxApp() {
+fun PokemonBoxApp(viewModel: PokemonViewModel = viewModel()) {
+
+    val isLoading by viewModel.isLoading
+
+
     val systemUiController = rememberSystemUiController()
 
 
@@ -97,18 +103,34 @@ fun PokemonBoxApp() {
             })
         }
     ) {
-        PokemonList()
+        if (isLoading) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator()
+            }
+        } else {
+                PokemonList(viewModel.pokemons.value)
+            }
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PokemonList() {
+fun PokemonList(pokemons: List<PokeModel>, viewModel: PokemonViewModel = viewModel()) {
     var searchQuery by remember { mutableStateOf("") }
 
-    val filteredPokemonList = pokemonList.filter {
-        it.name.contains(searchQuery, ignoreCase = true) || it.types.any { type -> type.contains(searchQuery, ignoreCase = true) }
+    val filteredPokemonList = pokemons.filter {
+        it.name.contains(searchQuery, ignoreCase = true) || it.types.any { type ->
+            type.type.name.lowercase(Locale.ROOT).contains(searchQuery, ignoreCase = true)
+        }
     }
+    val listState = rememberLazyListState()
+
+
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -139,6 +161,7 @@ fun PokemonList() {
         ) {
             items(filteredPokemonList.take(20)) { pokemon ->
                 PokemonItem(pokemon)
+
             }
         }
     }
@@ -147,32 +170,73 @@ fun PokemonList() {
 }
 
 @Composable
-fun PokemonItem(pokemon: Pokemon) {
+fun PokemonItem(pokemon: PokeModel) {
+
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(8.dp).background(Color.White)
-    ) {
-        Row(modifier = Modifier.padding(8.dp)) {
+            .padding(8.dp)
+            .background(Color.White)
 
-            Column(modifier = Modifier.padding(start = 8.dp)) {
-                Text(text = pokemon.name, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                Box(modifier = Modifier.padding(top = 4.dp))
-                Row {
-                    pokemon.types.forEach { type ->
-                        TypeBadge(type)
+    ) {
+        Column {
+            Row(modifier = Modifier.padding(2.dp)) {
+
+                val description = pokemon.description.replace("\n", " ")
+
+                ImageCard(pokemon)
+
+                Column(modifier = Modifier.padding(start = 2.dp)) {
+                    Text(text = pokemon.name.replaceFirstChar {
+                        if (it.isLowerCase()) it.titlecase(
+                            Locale.ROOT
+                        ) else it.toString()
+                    }, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    Box(modifier = Modifier.padding(top = 4.dp))
+                    Row {
+                        pokemon.types.forEach { type ->
+                            TypeBadge(type)
+                        }
                     }
+                    Box(modifier = Modifier.padding(top = 4.dp))
+                    Text(
+                        text = description,
+                        fontSize = 14.sp,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                   
                 }
-                Box(modifier = Modifier.padding(top = 4.dp))
-                Text(text = pokemon.description, fontSize = 14.sp, modifier = Modifier.padding(top = 4.dp))
             }
+            HorizontalDivider(
+                modifier = Modifier.padding(24.dp).fillMaxWidth(),
+                thickness = 1.dp,
+                color = Color.LightGray
+            )
         }
     }
 }
 
 @Composable
-fun TypeBadge(type: String) {
-    val color = when (type) {
+fun ImageCard(pokemon: PokeModel) {
+
+        Box(
+
+            contentAlignment = Alignment.Center
+        ) {
+            AsyncImage(
+                modifier = Modifier
+                    .height(100.dp),
+                model = pokemon.sprites.front_default,
+                contentDescription = pokemon.name,
+
+            )
+        }
+
+}
+
+@Composable
+fun TypeBadge(type: Type) {
+    val color = when (type.type.name.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.ROOT) else it.toString() }) {
         "Grass" -> Color(0xFF78C850)
         "Poison" -> Color(0xFFA040A0)
         "Electric" -> Color(0xFFF8D030)
@@ -203,7 +267,7 @@ fun TypeBadge(type: String) {
         )
     ) {
         Text(
-            text = type,
+            text = type.type.name.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.ROOT) else it.toString() },
             color = Color.White,
             fontSize = 12.sp,
             fontWeight = FontWeight.Bold,
